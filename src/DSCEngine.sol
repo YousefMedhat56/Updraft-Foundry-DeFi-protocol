@@ -215,7 +215,7 @@ contract DSCEngine is ReentrancyGuard {
      * @param amount The amount of tokens (in token decimals).
      * @return The USD value in 18 decimals.
      */
-    function getUsdValue(address token, uint256 amount) internal view isValidToken(token) returns (uint256) {
+    function getUsdValue(address token, uint256 amount) public view isValidToken(token) returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
         (, int256 price,,,) = priceFeed.latestRoundData();
         return ((uint256(price * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION);
