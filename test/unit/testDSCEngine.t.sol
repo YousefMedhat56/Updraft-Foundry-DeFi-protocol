@@ -13,6 +13,7 @@ contract DSCEngineTest is Test {
     //   Events      //
     ///////////////////
     event CollateralDeposited(address indexed user, address indexed token, uint256 amount);
+    event DSCMinted(address indexed user, uint256 amountMinted);
 
     /////////////////////////
     //   State Variables  //
@@ -29,6 +30,7 @@ contract DSCEngineTest is Test {
     address public USER = makeAddr("user");
     uint256 public constant STARTING_ERC20_BALANCE = 10 ether;
     uint256 public constant AMOUNT_COLLATERAL = 10 ether;
+    uint256 public constant AMOUNT_DSC_TO_MINT = 1000 ether; // $1000 DSC
     address public INVALID_COLLATERAL_ADDR = makeAddr("invalid_token");
 
     /////////////////////
@@ -131,5 +133,79 @@ contract DSCEngineTest is Test {
         uint256 userCollateral = engine.getCollateralBalance(USER, wbtc);
         assertEq(userCollateral, AMOUNT_COLLATERAL);
         assertEq(ERC20Mock(wbtc).balanceOf(address(engine)), AMOUNT_COLLATERAL);
+    }
+
+    ///////////////////////
+    // mintDsc Tests //
+    ///////////////////////
+
+    function testMintDscSuccess() public {
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(engine), AMOUNT_COLLATERAL);
+
+        // Deposit 10 WETH ($20,000 USD at $2000/ETH)
+        engine.depositCollateral(weth, AMOUNT_COLLATERAL);
+        uint256 expectedHealthFactor = 10e18; // ($20,000 * 0.5) / $1000 = 10
+
+        vm.expectEmit(true, false, false, true, address(engine));
+        emit DSCMinted(USER, AMOUNT_DSC_TO_MINT);
+        engine.mintDsc(AMOUNT_DSC_TO_MINT);
+        vm.stopPrank();
+
+        assertEq(dsc.balanceOf(USER), AMOUNT_DSC_TO_MINT, "Incorrect DSC balance");
+        assertEq(engine.getDscMinted(USER), AMOUNT_DSC_TO_MINT, "Incorrect s_DSCMinted");
+        assertEq(engine.getCollateralBalance(USER, weth), AMOUNT_COLLATERAL, "Collateral balance changed");
+        assertApproxEqAbs(engine.getHealthFactor(USER), expectedHealthFactor, 1e15, "Incorrect health factor");
+    }
+
+    function testRevertsIfMintZero() public {
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(engine), AMOUNT_COLLATERAL);
+
+        engine.depositCollateral(weth, AMOUNT_COLLATERAL);
+        vm.expectRevert(DSCEngine.DSCEngine__NeedsMoreThanZero.selector);
+        engine.mintDsc(0);
+        vm.stopPrank();
+    }
+
+    function testRevertsIfHealthFactorBroken() public {
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(engine), AMOUNT_COLLATERAL);
+
+        // Deposit 10 WETH ($20,000 USD), max DSC = $10,000 (health factor = 1)
+        engine.depositCollateral(weth, AMOUNT_COLLATERAL);
+        uint256 excessiveDsc = 10001e18; // $10,001 DSC
+        vm.expectRevert(
+            abi.encodeWithSelector(DSCEngine.DSCEngine__BreaksHealthFactor.selector, 0.999900009999000099e18)
+        );
+        engine.mintDsc(excessiveDsc);
+        vm.stopPrank();
+    }
+
+    function testRevertsIfNoCollateral() public {
+        vm.startPrank(USER);
+        vm.expectRevert(abi.encodeWithSelector(DSCEngine.DSCEngine__BreaksHealthFactor.selector, 0));
+        engine.mintDsc(AMOUNT_DSC_TO_MINT);
+        vm.stopPrank();
+    }
+
+    function testMintWithMultipleCollateral() public {
+        vm.startPrank(USER);
+        ERC20Mock(weth).approve(address(engine), AMOUNT_COLLATERAL);
+        ERC20Mock(wbtc).approve(address(engine), AMOUNT_COLLATERAL);
+        // Deposit 5 WETH ($10,000) and 5 WBTC ($5,000), total collateral = $15,000
+        engine.depositCollateral(weth, 5 ether);
+        engine.depositCollateral(wbtc, 5 ether);
+        uint256 dscToMint = 7500e18; // $7,500 DSC, health factor = ($15,000 * 0.5) / $7,500 = 1
+
+        vm.expectEmit(true, false, false, true, address(engine));
+        emit DSCMinted(USER, dscToMint);
+        engine.mintDsc(dscToMint);
+        vm.stopPrank();
+
+        assertEq(dsc.balanceOf(USER), dscToMint, "Incorrect DSC balance");
+        assertEq(engine.getDscMinted(USER), dscToMint, "Incorrect s_DSCMinted");
+        assertEq(engine.getCollateralBalance(USER, weth), 5 ether, "WETH balance changed");
+        assertEq(engine.getCollateralBalance(USER, wbtc), 5 ether, "WBTC balance changed");
     }
 }

@@ -29,7 +29,7 @@ contract DSCEngine is ReentrancyGuard {
     address[] private s_collateralTokens;
     mapping(address user => uint256 mintedDsc) s_DSCMinted;
 
-    uint256 private constant MIN_HEALTH_FACTOR = 1;
+    uint256 private constant MIN_HEALTH_FACTOR = 1e18;
     int256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
     uint256 private constant LIQUIDATION_THRESHOLD = 50;
@@ -155,7 +155,9 @@ contract DSCEngine is ReentrancyGuard {
 
     function liquidate() external {}
 
-    function getHealthFactor() external view {}
+    function getHealthFactor(address user) external view returns (uint256) {
+        return _healthFactor(user);
+    }
 
     /**
      * @notice Calculates the USD value of a given amount of a token using its Chainlink price feed.
@@ -178,6 +180,9 @@ contract DSCEngine is ReentrancyGuard {
         return s_collateralBalances[user][collateralToken];
     }
 
+    function getDscMinted(address user) public view returns (uint256) {
+        return s_DSCMinted[user];
+    }
     ////////////////////////////////////
     //   Internal & Private Functions  //
     ////////////////////////////////////
