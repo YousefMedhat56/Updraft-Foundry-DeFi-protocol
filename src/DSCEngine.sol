@@ -157,6 +157,27 @@ contract DSCEngine is ReentrancyGuard {
 
     function getHealthFactor() external view {}
 
+    /**
+     * @notice Calculates the USD value of a given amount of a token using its Chainlink price feed.
+     * @param token The ERC20 token address (e.g., WETH, WBTC).
+     * @param amount The amount of tokens (in token decimals).
+     * @return The USD value in 18 decimals.
+     */
+    function getUsdValue(address token, uint256 amount) public view isValidToken(token) returns (uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
+        (, int256 price,,,) = priceFeed.latestRoundData();
+        return ((uint256(price * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION);
+    }
+
+    function getCollateralBalance(address user, address collateralToken)
+        public
+        view
+        isValidToken(collateralToken)
+        returns (uint256)
+    {
+        return s_collateralBalances[user][collateralToken];
+    }
+
     ////////////////////////////////////
     //   Internal & Private Functions  //
     ////////////////////////////////////
@@ -207,17 +228,5 @@ contract DSCEngine is ReentrancyGuard {
         }
 
         return totalCollateralValueInUsd;
-    }
-
-    /**
-     * @notice Calculates the USD value of a given amount of a token using its Chainlink price feed.
-     * @param token The ERC20 token address (e.g., WETH, WBTC).
-     * @param amount The amount of tokens (in token decimals).
-     * @return The USD value in 18 decimals.
-     */
-    function getUsdValue(address token, uint256 amount) public view isValidToken(token) returns (uint256) {
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
-        (, int256 price,,,) = priceFeed.latestRoundData();
-        return ((uint256(price * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION);
     }
 }
