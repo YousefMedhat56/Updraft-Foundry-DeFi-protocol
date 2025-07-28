@@ -143,7 +143,18 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function redeemCollateralForDsc() external {}
+    /**
+     * @dev Calls burnDsc and redeemCollateral functions in a single transaction.
+     * @param dscBurnedAmount The amount of DSC to burn.
+     * @param tokenCollateralAddress The address of the collateral token to redeem.
+     * @param amountCollateral The amount of collateral to redeem
+     */
+    function redeemCollateralForDsc(uint256 dscBurnedAmount, address tokenCollateralAddress, uint256 amountCollateral)
+        external
+    {
+        burnDsc(dscBurnedAmount);
+        redeemCollateral(tokenCollateralAddress, amountCollateral);
+    }
 
     /**
      *
@@ -154,7 +165,7 @@ contract DSCEngine is ReentrancyGuard {
      * @param amountCollateral The amount of collateral to redeem (in token decimals)
      */
     function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral)
-        external
+        public
         isValidToken(tokenCollateralAddress)
         moreThanZero(amountCollateral)
         nonReentrant
@@ -189,6 +200,11 @@ contract DSCEngine is ReentrancyGuard {
         emit DSCMinted(msg.sender, amountDscToMint);
     }
 
+    /**
+     * @notice Burns DSC tokens from the caller
+     * @param amount The amount of DSC to burn.
+     * @dev Emits a `DSCBurned` event on success.
+     */
     function burnDsc(uint256 amount) public moreThanZero(amount) {
         s_DSCMinted[msg.sender] -= amount;
         bool success = i_dsc.transferFrom(msg.sender, address(this), amount);
