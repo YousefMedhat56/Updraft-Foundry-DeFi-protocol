@@ -19,6 +19,8 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__TransferFailed();
     error DSCEngine__MintFailed();
     error DSCEngine__BreaksHealthFactor(uint256 healthFactor);
+    error DSCEngine__HealthFactorOk();
+    error DSCEngine__HealthFactorNotImproved();
 
     /////////////////////////
     //   State Variables   //
@@ -34,6 +36,7 @@ contract DSCEngine is ReentrancyGuard {
     uint256 private constant PRECISION = 1e18;
     uint256 private constant LIQUIDATION_THRESHOLD = 50;
     uint256 private constant LIQUIDATION_PRECISION = 100;
+    uint256 private constant LIQUIDATION_BONUS = 10;
 
     ///////////////////
     //   Events      //
@@ -201,7 +204,41 @@ contract DSCEngine is ReentrancyGuard {
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    function liquidate() external {}
+    /**
+     * @notice Liquidates a user's collateral by covering their debt.
+     * @param collateralTokenAddress The address of the collateral token to liquidate.
+     * @param user The address of the user whose collateral is being liquidated.
+     * @param debtToCover The amount of debt to cover in USD (in 18 decimals).
+     * @dev Reverts if the user's health factor is above the minimum threshold before liquidation.
+     * @dev Reverts if the user's health factor does not improve after liquidation.
+     */
+    function liquidate(address collateralTokenAddress, address user, uint256 debtToCover)
+        external
+        isValidToken(collateralTokenAddress)
+        moreThanZero(debtToCover)
+        nonReentrant
+    {
+        uint256 startingUserHealthFactor = _healthFactor(user);
+        if (startingUserHealthFactor > MIN_HEALTH_FACTOR) {
+            revert DSCEngine__HealthFactorOk();
+        }
+        uint256 tokenAmountFromDebtCovered = getTokenAmountFromUsd(collateralTokenAddress, debtToCover);
+
+        uint256 bonusCollateral = (tokenAmountFromDebtCovered * LIQUIDATION_BONUS) / LIQUIDATION_PRECISION;
+
+        uint256 totalCollateralRedeemed = tokenAmountFromDebtCovered + bonusCollateral;
+
+        _redeemCollateral(user, msg.sender, collateralTokenAddress, totalCollateralRedeemed);
+
+        _burnDsc(debtToCover, user, msg.sender);
+
+        uint256 endingUserHealthFactor = _healthFactor(user);
+        if (endingUserHealthFactor <= startingUserHealthFactor) {
+            revert DSCEngine__HealthFactorNotImproved();
+        }
+
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
 
     function getHealthFactor(address user) external view returns (uint256) {
         return _healthFactor(user);
@@ -231,6 +268,24 @@ contract DSCEngine is ReentrancyGuard {
     function getDscMinted(address user) public view returns (uint256) {
         return s_DSCMinted[user];
     }
+
+    /**
+     * @notice Converts a USD amount (in 18 decimals) to the equivalent token amount using its Chainlink price feed.
+     * @param token The ERC20 token address (e.g., WETH, WBTC).
+     * @param usdAmountInWei The USD amount in 18 decimals.
+     * @return The equivalent token amount in token decimals.
+     */
+    function getTokenAmountFromUsd(address token, uint256 usdAmountInWei)
+        public
+        view
+        isValidToken(token)
+        returns (uint256)
+    {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
+        (, int256 price,,,) = priceFeed.latestRoundData();
+        return (usdAmountInWei * PRECISION) / (uint256(price) * uint256(ADDITIONAL_FEED_PRECISION));
+    }
+
     ////////////////////////////////////
     //   Internal & Private Functions  //
     ////////////////////////////////////
