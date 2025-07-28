@@ -40,6 +40,7 @@ contract DSCEngine is ReentrancyGuard {
     ///////////////////
 
     event CollateralDeposited(address indexed user, address indexed collateralToken, uint256 collateralAmount);
+    event CollateralRedeemed(address indexed user, address indexed collateralToken, uint256 collateralAmount);
     event DSCMinted(address indexed user, uint256 amountMinted);
 
     ///////////////////
@@ -143,7 +144,30 @@ contract DSCEngine is ReentrancyGuard {
 
     function redeemCollateralForDsc() external {}
 
-    function redeemCollateral() external {}
+    /**
+     *
+     * @notice Redeems collateral tokens from the DSCEngine contract.
+     * @dev Reverts if the user’s health factor is below the minimum threshold after redeeming.
+     * @dev Emits a `CollateralRedeemed` event on success.
+     * @param tokenCollateralAddress The address of the collateral token to redeem.
+     * @param amountCollateral The amount of collateral to redeem (in token decimals)
+     */
+    function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral)
+        external
+        isValidToken(tokenCollateralAddress)
+        moreThanZero(amountCollateral)
+        nonReentrant
+    {
+        s_collateralBalances[msg.sender][tokenCollateralAddress] -= amountCollateral;
+        emit CollateralRedeemed(msg.sender, tokenCollateralAddress, amountCollateral);
+
+        bool success = IERC20(tokenCollateralAddress).transfer(msg.sender, amountCollateral);
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
 
     /**
      * @notice Mints DSC tokens for the caller, ensuring sufficient collateral.
