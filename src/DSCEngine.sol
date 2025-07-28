@@ -44,7 +44,7 @@ contract DSCEngine is ReentrancyGuard {
         address indexed from, address indexed to, address indexed collateralToken, uint256 collateralAmount
     );
     event DSCMinted(address indexed user, uint256 amountMinted);
-    event DSCBurned(address indexed user, uint256 amountBurned);
+    event DSCBurned(address onBehalfOf, address dscFrom, uint256 amountBurned);
 
     ///////////////////
     //   Modifiers   //
@@ -163,7 +163,6 @@ contract DSCEngine is ReentrancyGuard {
      * @notice Redeems collateral tokens from the DSCEngine contract.
      * @dev Calls `_redeemCollateral` function
      * @dev Reverts if the user’s health factor is below the minimum threshold after redeeming.
-     * @dev Emits a `CollateralRedeemed` event on success.
      * @param tokenCollateralAddress The address of the collateral token to redeem.
      * @param amountCollateral The amount of collateral to redeem (in token decimals)
      */
@@ -194,16 +193,11 @@ contract DSCEngine is ReentrancyGuard {
     /**
      * @notice Burns DSC tokens from the caller
      * @param amount The amount of DSC to burn.
-     * @dev Emits a `DSCBurned` event on success.
+     * @dev Calls `_burnDsc` function`
+     * @dev Reverts if the user’s health factor is below the minimum threshold after redeeming.
      */
     function burnDsc(uint256 amount) public moreThanZero(amount) {
-        s_DSCMinted[msg.sender] -= amount;
-        bool success = i_dsc.transferFrom(msg.sender, address(this), amount);
-        if (!success) {
-            revert DSCEngine__TransferFailed();
-        }
-        i_dsc.burn(amount);
-        emit DSCBurned(msg.sender, amount);
+        _burnDsc(amount, msg.sender, msg.sender);
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
@@ -310,5 +304,24 @@ contract DSCEngine is ReentrancyGuard {
         if (!success) {
             revert DSCEngine__TransferFailed();
         }
+    }
+
+    /**
+     * @notice Burns DSC tokens from a specified address and updates the user's minted DSC balance.
+     * @param amountDscToBurn The amount of DSC to burn.
+     * @param onBehalfOf The address on whose behalf the DSC is being burned.
+     * @param dscFrom The address from which the DSC is being burned.
+     * @dev Emits a `DSCBurned` event on success.
+     */
+    function _burnDsc(uint256 amountDscToBurn, address onBehalfOf, address dscFrom) private {
+        s_DSCMinted[onBehalfOf] -= amountDscToBurn;
+        emit DSCBurned(onBehalfOf, dscFrom, amountDscToBurn);
+
+        bool success = i_dsc.transferFrom(dscFrom, address(this), amountDscToBurn);
+        // This conditional is hypothetically unreachable
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
+        i_dsc.burn(amountDscToBurn);
     }
 }
