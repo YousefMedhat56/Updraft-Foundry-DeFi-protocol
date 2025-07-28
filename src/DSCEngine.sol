@@ -40,7 +40,9 @@ contract DSCEngine is ReentrancyGuard {
     ///////////////////
 
     event CollateralDeposited(address indexed user, address indexed collateralToken, uint256 collateralAmount);
-    event CollateralRedeemed(address indexed user, address indexed collateralToken, uint256 collateralAmount);
+    event CollateralRedeemed(
+        address indexed from, address indexed to, address indexed collateralToken, uint256 collateralAmount
+    );
     event DSCMinted(address indexed user, uint256 amountMinted);
     event DSCBurned(address indexed user, uint256 amountBurned);
 
@@ -159,25 +161,14 @@ contract DSCEngine is ReentrancyGuard {
     /**
      *
      * @notice Redeems collateral tokens from the DSCEngine contract.
+     * @dev Calls `_redeemCollateral` function
      * @dev Reverts if the user’s health factor is below the minimum threshold after redeeming.
      * @dev Emits a `CollateralRedeemed` event on success.
      * @param tokenCollateralAddress The address of the collateral token to redeem.
      * @param amountCollateral The amount of collateral to redeem (in token decimals)
      */
-    function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral)
-        public
-        isValidToken(tokenCollateralAddress)
-        moreThanZero(amountCollateral)
-        nonReentrant
-    {
-        s_collateralBalances[msg.sender][tokenCollateralAddress] -= amountCollateral;
-        emit CollateralRedeemed(msg.sender, tokenCollateralAddress, amountCollateral);
-
-        bool success = IERC20(tokenCollateralAddress).transfer(msg.sender, amountCollateral);
-        if (!success) {
-            revert DSCEngine__TransferFailed();
-        }
-
+    function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral) public {
+        _redeemCollateral(msg.sender, msg.sender, tokenCollateralAddress, amountCollateral);
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
@@ -296,5 +287,28 @@ contract DSCEngine is ReentrancyGuard {
         }
 
         return totalCollateralValueInUsd;
+    }
+
+    /**
+     * @notice Internal function to redeem collateral tokens from the DSCEngine contract.
+     * @param from The address of the user redeeming collateral.
+     * @param to The address to which the collateral will be sent.
+     * @param tokenCollateralAddress The address of the collateral token to redeem.
+     * @param amountCollateral The amount of collateral to redeem (in token decimals).
+     * @dev Emits a `CollateralRedeemed` event on success.
+     */
+    function _redeemCollateral(address from, address to, address tokenCollateralAddress, uint256 amountCollateral)
+        private
+        isValidToken(tokenCollateralAddress)
+        moreThanZero(amountCollateral)
+        nonReentrant
+    {
+        s_collateralBalances[from][tokenCollateralAddress] -= amountCollateral;
+        emit CollateralRedeemed(from, to, tokenCollateralAddress, amountCollateral);
+
+        bool success = IERC20(tokenCollateralAddress).transfer(to, amountCollateral);
+        if (!success) {
+            revert DSCEngine__TransferFailed();
+        }
     }
 }
