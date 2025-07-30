@@ -273,4 +273,59 @@ contract DSCEngineTest is Test {
         assertEq(ERC20Mock(weth).balanceOf(address(engine)), 0, "Contract WETH balance not zero");
         assertEq(engine.getHealthFactor(USER), type(uint256).max, "Incorrect health factor");
     }
+
+    ///////////////////////
+    // burnDsc Tests //
+    ///////////////////////
+
+    function testBurnDscSuccess() public {
+        depositCollateral(USER, weth, AMOUNT_COLLATERAL); // 10 WETH = $20,000
+        mintDsc(USER, AMOUNT_DSC_TO_MINT); // $1000 DSC
+        uint256 burnAmount = 500e18; // $500 DSC
+
+        vm.startPrank(USER);
+        dsc.approve(address(engine), burnAmount);
+        engine.burnDsc(burnAmount);
+        vm.stopPrank();
+
+        assertEq(dsc.balanceOf(USER), AMOUNT_DSC_TO_MINT - burnAmount, "Incorrect DSC balance");
+        assertEq(engine.getDscMinted(USER), AMOUNT_DSC_TO_MINT - burnAmount, "Incorrect s_DSCMinted");
+        assertEq(engine.getCollateralBalance(USER, weth), AMOUNT_COLLATERAL, "Collateral balance changed");
+        assertApproxEqAbs(engine.getHealthFactor(USER), 20e18, 1e15, "Incorrect health factor"); // ($20,000 * 0.5) / $500 = 20
+    }
+
+    function testRevertsIfBurnZero() public {
+        depositCollateral(USER, weth, AMOUNT_COLLATERAL);
+        mintDsc(USER, AMOUNT_DSC_TO_MINT);
+        vm.startPrank(USER);
+        vm.expectRevert(DSCEngine.DSCEngine__NeedsMoreThanZero.selector);
+        engine.burnDsc(0);
+        vm.stopPrank();
+    }
+
+    function testRevertsIfInsufficientDscBalance() public {
+        depositCollateral(USER, weth, AMOUNT_COLLATERAL);
+        mintDsc(USER, AMOUNT_DSC_TO_MINT);
+        uint256 excessiveAmount = AMOUNT_DSC_TO_MINT + 1 ether;
+
+        vm.startPrank(USER);
+        dsc.approve(address(engine), excessiveAmount);
+        vm.expectRevert();
+        engine.burnDsc(excessiveAmount);
+        vm.stopPrank();
+    }
+
+    function testBurnAllDsc() public {
+        depositCollateral(USER, weth, AMOUNT_COLLATERAL);
+        mintDsc(USER, AMOUNT_DSC_TO_MINT);
+
+        vm.startPrank(USER);
+        dsc.approve(address(engine), AMOUNT_DSC_TO_MINT);
+        engine.burnDsc(AMOUNT_DSC_TO_MINT);
+        vm.stopPrank();
+
+        assertEq(dsc.balanceOf(USER), 0);
+        assertEq(engine.getDscMinted(USER), 0);
+        assertEq(engine.getHealthFactor(USER), type(uint256).max);
+    }
 }
