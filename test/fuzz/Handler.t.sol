@@ -36,15 +36,43 @@ contract Handler is Test {
 
     function redeemCollateral(uint256 collateralSeed, uint256 amountCollateral) public {
         ERC20Mock collateral = _getCollateralFromSeed(collateralSeed);
-        uint256 maxCollateralToRedeem = engine.getCollateralBalanceOfUser(address(collateral), msg.sender);
+        (uint256 totalDscMinted, uint256 collateralValueInUsd) = engine.getAccountInfo(msg.sender);
+        uint256 collateralBalance = engine.getCollateralBalanceOfUser(address(collateral), msg.sender);
 
+        // Calculate max collateral to redeem based on health factor
+        uint256 maxCollateralToRedeem;
+        if (totalDscMinted == 0) {
+            maxCollateralToRedeem = collateralBalance;
+        } else {
+            uint256 maxUsdToRedeem =
+                collateralValueInUsd > 2 * totalDscMinted ? collateralValueInUsd - 2 * totalDscMinted : 0;
+            maxCollateralToRedeem = engine.getTokenAmountFromUsd(address(collateral), maxUsdToRedeem);
+            maxCollateralToRedeem =
+                collateralBalance < maxCollateralToRedeem ? collateralBalance : maxCollateralToRedeem;
+        }
         amountCollateral = bound(amountCollateral, 0, maxCollateralToRedeem);
-        if (amountCollateral == 0) {
+        if (amountCollateral == 0 || maxCollateralToRedeem == 0) return;
+        vm.startPrank(msg.sender);
+
+        engine.redeemCollateral(address(collateral), amountCollateral);
+        vm.stopPrank();
+    }
+
+    function mintDsc(uint256 amount) public {
+        (uint256 totalDscMinted, uint256 collateralValueInUsd) = engine.getAccountInfo(msg.sender);
+
+        int256 maxDscToMint = int256((collateralValueInUsd / 2) - totalDscMinted);
+        if (maxDscToMint < 0) {
+            return;
+        }
+
+        amount = bound(amount, 0, uint256(maxDscToMint));
+        if (amount == 0) {
             return;
         }
 
         vm.prank(msg.sender);
-        engine.redeemCollateral(address(collateral), amountCollateral);
+        engine.mintDsc(amount);
     }
 
     // Helper Functions
